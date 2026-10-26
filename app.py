@@ -1,5 +1,5 @@
 """
-Card Show Ledger: a dashboard for Collectr exports.
+Card Show Analytics: a dashboard for Collectr exports.
 
 Reads one Collectr inventory export plus any number of Collectr "sold" exports
 (one per card show) and shows realized and unrealized profit, expenses, and
@@ -50,7 +50,7 @@ INDIGO = "#33449E"
 SERIES = ["#33449E", "#5C6FD6", "#9AA6EC", "#1F8A70", "#7CC2AE",
           "#D9A441", "#C8424F", "#A3AABA", "#2C7DA0", "#B36A8F"]
 
-st.set_page_config(page_title="Card Show Ledger", page_icon="🃏", layout="wide")
+st.set_page_config(page_title="Card Show Analytics", page_icon="🃏", layout="wide")
 
 # --------------------------------------------------------------------------
 # Styling
@@ -366,7 +366,7 @@ if inv is not None:
     inv["Show"] = assign_show(inv["Date added"], shows_df)
 
 if inv is None and sales is None:
-    st.markdown("## Card Show Ledger")
+    st.markdown("## Card Show Analytics")
     st.markdown(
         "Add your Collectr exports to get started: your **inventory** export and a "
         "**sold** export for each show. Use the uploaders in the sidebar, or copy the "
@@ -471,7 +471,7 @@ missing_cost_paid = float(inv_f.loc[~inv_f["Has value"], "Cost"].sum()) if inv_f
 zero_cost_cards = int(inv_f.loc[inv_f["Zero cost"], "Qty"].sum()) if inv_f is not None else 0
 
 n_shows = len(sel_shows)
-st.title("Card Show Ledger")
+st.title("Card Show Analytics")
 
 if sales_f is not None and n_shows:
     show_word = "show" if n_shows == 1 else "shows"
