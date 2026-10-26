@@ -42,9 +42,40 @@ python -m streamlit run app.py
 
 The dashboard opens in your browser at `http://localhost:8501`. Next time, you only need to activate the virtual environment and run that command.
 
+## Exporting from Collectr
+
+The dashboard reads two kinds of CSV files from Collectr: your **inventory** (everything you own right now) and your **sales** (cards you've marked as sold). Exporting requires a [Collectr PRO](https://getcollectr.com/pro) membership.
+
+### Inventory
+
+1. Open Collectr and go to the **Portfolio** screen.
+2. Tap the **three dots** in the top right and select **Export**.
+3. Enter your email address. Collectr emails you the export as a CSV file.
+4. Download the CSV from the email and save it as `data/inventory.csv`, replacing the old one.
+
+Export all your portfolios, not just one. The dashboard uses your portfolio names for its filters and charts, and the **Hide personal collection** filter looks for portfolios with "PC" in the name.
+
+### Sales
+
+1. When you sell a card, mark it as sold in Collectr and enter the sold price and date. The dashboard calculates profit from your purchase price and sold price, so both need to be filled in.
+2. After the show, open **View transaction log** in Collectr.
+3. Tap **Export to CSV**.
+4. Save the CSV in `data/sales/`, named after the show (for example `Spring expo.csv`).
+
+Each sales file counts as one show. If your export includes sales from other days or other shows, open it in a spreadsheet app, delete those rows, and save it as CSV before adding it.
+
+### What the files need to contain
+
+If a file won't load, check that it has these columns (the names must match Collectr's export):
+
+| File | Required columns |
+| --- | --- |
+| Inventory | Portfolio Name, Category, Set, Product Name, Grade, Average Cost Paid, Quantity, Market Price (As of …), Price Override, Date Added |
+| Sales | Portfolio Name, Product Name, Grade, Quantity, Purchase Price, Purchase Date, Sold Price, Sold Date |
+
 ## Adding your data
 
-Export your data from Collectr as CSV, then either drag the files into the uploaders in the app's sidebar or put them in the `data` folder so they load automatically:
+Once you have the CSV files, either drag them into the uploaders in the app's sidebar or put them in the `data` folder so they load automatically:
 
 ```
 data/
