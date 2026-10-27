@@ -1,4 +1,4 @@
-# Card Show Ledger
+# Card Show Analytics
 
 A Streamlit dashboard for trading card vendors. Load your [Collectr](https://getcollectr.com) exports and see what you actually made at each card show: realized profit, unrealized profit on the cards still in your binder, show expenses, and charts that show where your money is.
 
@@ -12,7 +12,7 @@ A Streamlit dashboard for trading card vendors. Load your [Collectr](https://get
 
 - **Answers "did I make money?"** with net profit across your selected shows, after cost of cards sold and show expenses.
 - **Tracks realized and unrealized profit separately.** Realized comes from your Collectr transaction logs; unrealized compares what you paid for your current stock against today's market value.
-- **Breaks results down by show,** so you can compare shows and decide which are worth the table fee.
+- **Breaks results down by show.** Upload your full transaction log once, then give each show a name and date range; every sale on those dates counts toward that show. Compare shows and decide which are worth the table fee.
 - **Logs show expenses** (table fees, gas, hotel, food, supplies) right in the app, since Collectr doesn't export them.
 - **Filters everything** by show, game, portfolio, and gains or losses.
 - **Charts the useful stuff:** profit on every card sold, running totals by date, raw vs graded revenue, profit by grade, holding time vs profit, biggest unrealized winners and losers, value by portfolio, and how concentrated your value is in a few cards.
@@ -22,8 +22,8 @@ A Streamlit dashboard for trading card vendors. Load your [Collectr](https://get
 
 The dashboard doesn't store anything on the server. Your data lives in your browser session while the dashboard is open, and you keep it between sessions with a **save file**:
 
-1. When you're done, click **Download save file** in the sidebar. You get a `.zip` file, for example `card-show-ledger-2026-10-26.zip`.
-2. Next time, open the dashboard and upload that file under **Open save file**. Everything comes back: your inventory, your shows and their sales, and your expenses.
+1. When you're done, click **Download save file** in the sidebar. You get a `.zip` file, for example `card-show-analytics-2026-10-26.zip`.
+2. Next time, open the dashboard and upload that file under **Open save file**. Everything comes back: your inventory, your transaction log, your shows, and your expenses.
 
 The sidebar tells you when you have changes that aren't in a save file yet. Closing or refreshing the tab without downloading loses those changes.
 
@@ -32,8 +32,9 @@ Inside the save file:
 | File | Contents |
 | --- | --- |
 | `inventory.csv` | Your Collectr inventory export |
-| `shows.csv` | Your shows and their expenses |
-| `sales/<show>.csv` | One Collectr transaction log per show |
+| `sales.csv` | Your full Collectr transaction log, with every sale |
+| `shows.csv` | Your shows: name, start date and end date |
+| `expenses.csv` | The expenses you logged: show, category, amount and note |
 
 These are ordinary CSV files, so you can unzip the save file and open them in any spreadsheet app.
 
@@ -83,7 +84,7 @@ Export all your portfolios, not just one. The dashboard uses your portfolio name
 2. After the show, open **View transaction log** in Collectr.
 3. Tap **Export to CSV**.
 
-If your export includes sales from other days or other shows, open it in a spreadsheet app, delete those rows, and save it as CSV before adding it.
+Export your full transaction log every time; you don't need to trim it. The dashboard sorts each sale into a show by its sold date, and a new export replaces the previous one.
 
 ### What the files need to contain
 
@@ -99,43 +100,50 @@ If a file won't load, check that it has these columns (the names must match Coll
 ### First time
 
 1. Upload your Collectr inventory export in the sidebar under **Collectr inventory export**.
-2. Add your shows (see below).
-3. Click **Download save file** and keep the file somewhere safe.
+2. Upload your full transaction log under **Collectr transaction log**.
+3. Set up your shows (see below).
+4. Click **Download save file** and keep the file somewhere safe.
 
 ### Before each show
 
 1. Open your save file.
 2. Upload a fresh inventory export so market values are current. It replaces the previous inventory.
-3. Optionally add the show now, without a file, so you can log its table fee.
+3. Optionally add the upcoming show to your shows table now, so you can log its table fee.
 4. Download your save file.
 
 ### After each show
 
 1. Open your save file.
-2. Add the show's transaction log with **Add a show**.
-3. Log your table fee and other costs under **Expenses** and click **Update expenses**.
-4. Check the headline number for your net profit.
-5. Download your save file.
+2. Upload a fresh transaction log export. It replaces the previous one.
+3. Make sure the show is in your shows table with the right dates.
+4. Log your table fee and other costs under **Expenses** and click **Update expenses**.
+5. Check the headline number for your net profit, then download your save file.
 
-### Adding a show
+### Setting up your shows
 
-On the **Shows & expenses** tab, open **Add a show**:
+On the **Shows & expenses** tab, the **Cards sold per day** chart shows every day you sold something, colored by show, so you can see where each show's sales fall. Below it is your shows table:
 
-1. Type the show's name.
-2. Attach the show's Collectr transaction log, or leave it empty to create the show now and add sales later.
-3. Click **Add show**.
+| Column | What to enter |
+| --- | --- |
+| Show | The show's name |
+| Start date | The first day of the show |
+| End date | The last day of the show. Leave it empty for a one-day show. |
 
-To add more sales to a show you already created (for example the second day of a weekend show), use the same show name and choose **Add these sales to it**. Sales that are already there are skipped, so adding the same transaction log twice won't double count. Choose **Replace its sales** to start that show over with the new file.
+Add a row for each show, edit names or dates in place, or delete a row to remove a show. Then click **Update shows**. Every sale with a sold date between a show's start and end dates (inclusive) counts toward that show.
 
-### Renaming or removing a show
+A few rules keep the numbers clean:
 
-On **Shows & expenses**, open **Rename or remove a show** and pick the show. Renaming moves its expenses with it. To remove a show, tick the confirmation box and click **Remove show**; its expenses are removed too.
+- Shows can't overlap, since a sale can only belong to one show.
+- Each show needs its own name.
+- Renaming a show keeps its expenses. Deleting a show removes its expenses too.
+
+Sales outside every show's dates, like online sales, are grouped as **Not at a show**. They're left out of show results by default; pick **Not at a show** in the **Card show** filter to include them.
 
 ### Filters (sidebar)
 
 | Filter | What it does |
 | --- | --- |
-| Card show | Choose which shows count toward sales and expenses. |
+| Card show | Choose which shows count toward sales and expenses. Includes **Not at a show** for sales outside every show. |
 | Game | Pokémon, Riftbound, or whatever games are in your exports. |
 | Portfolio | Limit to specific Collectr portfolios. |
 | Hide personal collection | Hides any portfolio with "PC" in its name, so only for-sale stock counts. |
@@ -147,8 +155,8 @@ On **Shows & expenses**, open **Rename or remove a show** and pick the show. Ren
 - **Overview:** results for each show and where your inventory value sits.
 - **Realized:** every sale, best and worst sales, profit by grade, and whether holding longer paid off.
 - **Unrealized:** biggest gainers and losers, value by game, type, grade or condition, and a searchable inventory table.
-- **Shows & expenses:** add, rename and remove shows, a results table for each show, and the expense log.
-- **Files:** the Collectr exports in your current session, each downloadable on its own.
+- **Shows & expenses:** sales per day, your shows table, a results table for each show, and the expense log.
+- **Files:** your inventory and transaction log, each downloadable on its own.
 
 ## How the numbers work
 
@@ -178,7 +186,7 @@ cardshowAnalytics/
 The dashboard only keeps data until the tab is closed or refreshed. Open your latest save file. Download a new save file whenever the sidebar says you have unsaved changes.
 
 **"That file isn't a save file"**
-Upload the `.zip` you downloaded from the dashboard, not one of the CSV files inside it. To load a single Collectr export, use **Collectr inventory export** in the sidebar or **Add a show**.
+Upload the `.zip` you downloaded from the dashboard, not one of the CSV files inside it. To load a Collectr export on its own, use **Collectr inventory export** or **Collectr transaction log** in the sidebar.
 
 **`error: externally-managed-environment` when running pip**
 Your system Python doesn't allow direct installs. Create and activate the virtual environment as shown above, then use `python -m pip install`.
@@ -188,6 +196,9 @@ The virtual environment isn't active, or the install didn't finish. Run `source 
 
 **`nodename nor servname provided, or not known` during install**
 pip can't reach the internet. Check your connection, turn off any VPN, or try another network, then run the install again.
+
+**A sale is counted under the wrong show, or under Not at a show**
+Check the show's start and end dates on the Shows & expenses tab. Sales are matched by their Sold Date in Collectr.
 
 **A card shows no market value**
 Collectr has no price for it. Set a price override in Collectr and re-export.
