@@ -1,15 +1,17 @@
 """
 Card Show Analytics: a dashboard for Collectr exports.
 
-Reads one Collectr inventory export plus any number of Collectr "sold" exports
-(one per card show) and shows realized and unrealized profit, expenses, and
-analytics.
+Reads one Collectr inventory export plus any number of Collectr transaction log
+exports (one per card show) and shows realized and unrealized profit, expenses,
+and analytics. Data is kept in Google Sheets when credentials are set in Streamlit
+secrets, otherwise in the local data folder (see storage.py).
 
 Run:  streamlit run app.py
 """
 
 from __future__ import annotations
 
+import hmac
 import io
 import re
 from pathlib import Path
@@ -20,25 +22,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from storage import get_store, show_name_from_file
+
 # --------------------------------------------------------------------------
 # Paths and settings
 # --------------------------------------------------------------------------
-APP_DIR = Path(__file__).parent
-DATA_DIR = APP_DIR
-INVENTORY_FILE = DATA_DIR / "inventory.csv"
-SALES_DIR = DATA_DIR / "sales"
-EXPENSES_FILE = DATA_DIR / "expenses.csv"
-SHOWS_FILE = DATA_DIR / "shows.csv"
-UNASSIGNED = "Non-show sales"
-
-# Optional links to the original files (e.g. Google Sheets). Shown on the Files tab.
-SOURCE_LINKS = {
-    "Collectr inventory (Google Sheets)": "https://docs.google.com/spreadsheets/d/1w7yOrWuAotUUqF8gteVYApwq3oawyTNB2T0pSgycdHM",
-    "Bossa show (Google Sheets)": "https://docs.google.com/spreadsheets/d/1WjpuIog_wMjYGonfBZ7qMsLImcZ5enZRI-ejrs1ybRw",
-}
-
 EXPENSE_CATEGORIES = ["Table fee", "Gas / travel", "Hotel", "Food", "Parking",
-                      "Supplies", "Payment fees", "Grading", "Staffing fees", "Other"]
+                      "Supplies", "Payment fees", "Grading", "Other"]
 
 # Palette
 INK = "#1C2430"
@@ -221,7 +211,7 @@ def parse_inventory(raw: bytes) -> tuple[pd.DataFrame, pd.DataFrame, str]:
 
 
 @st.cache_data(show_spinner=False)
-def parse_sales(raw: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
+def parse_sales(raw: bytes, show: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     original = pd.read_csv(io.BytesIO(raw), dtype=str, keep_default_na=False,
                            engine="python", index_col=False)
     original.columns = [c.strip() for c in original.columns]
@@ -232,6 +222,7 @@ def parse_sales(raw: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
         return original[key] if key else pd.Series([default] * len(original))
 
     df = pd.DataFrame({
+        "Show": show,
         "Portfolio": col("Portfolio Name").str.strip(),
         "Card": col("Product Name").str.strip(),
         "Variant": col("Product Subtype"),
@@ -255,123 +246,117 @@ def parse_sales(raw: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
     return df, original
 
 
-def load_shows() -> pd.DataFrame:
-    if SHOWS_FILE.exists():
-        df = pd.read_csv(SHOWS_FILE)
-    else:
-        df = pd.DataFrame(columns=["Name", "Start", "End"])
-    for c in ["Name", "Start", "End"]:
-        if c not in df:
-            df[c] = None
-    df["Name"] = df["Name"].astype(str).str.strip()
-    df["Start"] = pd.to_datetime(df["Start"], errors="coerce").dt.date
-    df["End"] = pd.to_datetime(df["End"], errors="coerce").dt.date
-    return df[["Name", "Start", "End"]]
+# --------------------------------------------------------------------------
+# Optional password (set app_password in Streamlit secrets)
+# --------------------------------------------------------------------------
+def app_password() -> str | None:
+    try:
+        return st.secrets.get("app_password")
+    except Exception:  # noqa: BLE001
+        return None
 
 
-def assign_show(dates: pd.Series, shows_df: pd.DataFrame) -> pd.Series:
-    out = pd.Series([UNASSIGNED] * len(dates), index=dates.index, dtype=object)
-    d = pd.to_datetime(dates, errors="coerce").dt.date
-    for _, row in shows_df.iterrows():
-        name = str(row["Name"]).strip()
-        start, end = row["Start"], row["End"]
-        if not name or name.lower() == "nan" or pd.isna(start) or pd.isna(end):
-            continue
-        mask = d.notna() & (d >= start) & (d <= end)
-        out = out.where(~mask, name)
-    return out
+if app_password() and not st.session_state.get("signed_in"):
+    st.title("Card Show Analytics")
+    with st.form("sign_in"):
+        entered = st.text_input("Password", type="password")
+        if st.form_submit_button("Open dashboard", type="primary"):
+            if hmac.compare_digest(entered, str(app_password())):
+                st.session_state["signed_in"] = True
+                st.rerun()
+            else:
+                st.error("That password isn't right. Try again.")
+    st.stop()
 
-
-def load_expenses() -> pd.DataFrame:
-    if EXPENSES_FILE.exists():
-        df = pd.read_csv(EXPENSES_FILE, dtype={"Show": str, "Category": str, "Note": str})
-    else:
-        df = pd.DataFrame(columns=["Show", "Category", "Amount", "Note"])
-    for c in ["Show", "Category", "Note"]:
-        if c not in df:
-            df[c] = ""
-    df["Amount"] = to_num(df.get("Amount", pd.Series(dtype=str))).fillna(0)
-    return df[["Show", "Category", "Amount", "Note"]]
-
+# --------------------------------------------------------------------------
+# Storage
+# --------------------------------------------------------------------------
+store = get_store()
+if store.kind == "sheets":
+    try:
+        store.check()
+    except Exception as e:  # noqa: BLE001
+        st.title("Card Show Analytics")
+        st.error(
+            "Couldn't open your Google Sheet. Check that `spreadsheet_url` in the app's secrets "
+            f"is right and that the sheet is shared with **{store.service_email}** as an editor.\n\n"
+            f"Details: {type(e).__name__}: {e}")
+        st.stop()
 
 # --------------------------------------------------------------------------
 # Sidebar: data sources
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### Data")
-    st.caption("Drop new Collectr exports here, or put them in the app's data folder "
-               "so they load automatically.")
+    if store.kind == "sheets":
+        st.caption("Your data is saved in Google Sheets. Upload new Collectr exports here, "
+                   "then save them so they stay.")
+    else:
+        st.caption("Upload new Collectr exports here, or put them in the app's data folder "
+                   "so they load automatically.")
     inv_upload = st.file_uploader("Inventory export", type=["csv"], key="inv_up")
-    sales_uploads = st.file_uploader("Sold exports", type=["csv"],
+    sales_uploads = st.file_uploader("Transaction log exports (one file per show)", type=["csv"],
                                      accept_multiple_files=True, key="sales_up")
-    st.caption("Upload any number of sold exports; rows are combined into one dataset. "
-               "Define shows by date range in the *Shows & expenses* tab — rows get "
-               "assigned to a show based on their date.")
+    st.caption("Each transaction log file becomes a show, named after the file. "
+               "You can rename shows on the Shows & expenses tab.")
 
-    if (inv_upload or sales_uploads) and st.button("Save uploads to data folder",
-                                                   width="stretch"):
-        DATA_DIR.mkdir(exist_ok=True)
-        SALES_DIR.mkdir(exist_ok=True)
-        if inv_upload:
-            INVENTORY_FILE.write_bytes(inv_upload.getvalue())
-        for f in sales_uploads or []:
-            (SALES_DIR / Path(f.name).name).write_bytes(f.getvalue())
-        st.success("Saved. These files will load automatically next time.")
+    if (inv_upload or sales_uploads) and st.button(f"Save uploads to {store.where}",
+                                                   width="stretch", type="primary"):
+        with st.spinner(f"Saving to {store.where}…"):
+            if inv_upload:
+                store.save_inventory(inv_upload.getvalue())
+            for f in sales_uploads or []:
+                store.save_sales(show_name_from_file(f.name), f.getvalue(), f.name)
+        st.success(f"Saved to {store.where}. These files will load automatically next time.")
 
-# Inventory: upload wins, else data folder
-inv_bytes, inv_source = None, None
+    if store.kind == "sheets":
+        if st.button("Reload from Google Sheets", width="stretch",
+                     help="Use this after editing the Google Sheet directly."):
+            store.refresh()
+            st.rerun()
+        st.link_button("Open the Google Sheet", store.link, width="stretch")
+
+# Inventory: an upload wins, otherwise what's stored
+inv_bytes, inv_source = store.inventory()
 if inv_upload is not None:
     inv_bytes, inv_source = inv_upload.getvalue(), inv_upload.name
-elif INVENTORY_FILE.exists():
-    inv_bytes, inv_source = INVENTORY_FILE.read_bytes(), INVENTORY_FILE.name
-else:
-    # fall back to any csv in data/ that looks like an inventory export
-    for p in sorted(DATA_DIR.glob("*.csv")) if DATA_DIR.exists() else []:
-        if p.name != EXPENSES_FILE.name:
-            head = p.read_text(errors="ignore").split("\n", 1)[0]
-            if "Market Price" in head:
-                inv_bytes, inv_source = p.read_bytes(), p.name
-                break
 
-# Sales: uploads plus everything in data/sales (an upload with the same filename wins)
-sales_files: dict[str, bytes] = {}
-if SALES_DIR.exists():
-    for p in sorted(SALES_DIR.glob("*.csv")):
-        sales_files[p.name] = p.read_bytes()
+# Sales: everything stored, plus uploads (an upload with the same show name wins)
+sales_files: dict[str, tuple[str, bytes]] = store.sales()
+stored_shows = sorted(sales_files)
 for f in sales_uploads or []:
-    sales_files[Path(f.name).name] = f.getvalue()
+    sales_files[show_name_from_file(f.name)] = (f.name, f.getvalue())
 
 inv, inv_original, as_of = (None, None, "")
 if inv_bytes:
     try:
         inv, inv_original, as_of = parse_inventory(inv_bytes)
     except Exception as e:  # noqa: BLE001
-        st.error(f"Couldn't read the inventory file ({inv_source}): {e}. "
+        st.error(f"Couldn't read the inventory ({inv_source}): {e}. "
                  "Check that it's a Collectr CSV export.")
 
 sales_parts, sales_originals = [], {}
-for fname, raw in sales_files.items():
+for show, (source, raw) in sales_files.items():
     try:
-        part, orig = parse_sales(raw)
+        part, orig = parse_sales(raw, show)
         sales_parts.append(part)
-        sales_originals[fname] = orig
+        sales_originals[show] = (source, orig, raw)
     except Exception as e:  # noqa: BLE001
-        st.error(f"Couldn't read the sold file {fname}: {e}.")
+        st.error(f"Couldn't read the sales for {show} ({source}): {e}.")
 sales = pd.concat(sales_parts, ignore_index=True) if sales_parts else None
-
-shows_df = load_shows()
-if sales is not None:
-    sales["Show"] = assign_show(sales["Sold"], shows_df)
-if inv is not None:
-    inv["Show"] = assign_show(inv["Date added"], shows_df)
 
 if inv is None and sales is None:
     st.markdown("## Card Show Analytics")
-    st.markdown(
-        "Add your Collectr exports to get started: your **inventory** export and a "
-        "**sold** export for each show. Use the uploaders in the sidebar, or copy the "
-        "files into the app's `data` folder (`data/inventory.csv` and `data/sales/`)."
-    )
+    if store.kind == "sheets":
+        st.markdown(
+            "Your Google Sheet is connected but empty. Upload your Collectr **inventory** "
+            "export and a **transaction log** export for each show in the sidebar, then "
+            "click **Save uploads to Google Sheets**.")
+    else:
+        st.markdown(
+            "Add your Collectr exports to get started: your **inventory** export and a "
+            "**transaction log** export for each show. Use the uploaders in the sidebar, or "
+            "copy the files into the app's `data` folder (`data/inventory.csv` and `data/sales/`).")
     st.stop()
 
 # Map portfolio -> game so sales (which have no game column) can be filtered by game
@@ -382,7 +367,7 @@ if sales is not None:
     sales["Game"] = sales["Portfolio"].map(portfolio_game).fillna(
         sales["Portfolio"].str.split().str[0].fillna("Other"))
 
-expenses_all = load_expenses()
+expenses_all = store.expenses()
 
 # --------------------------------------------------------------------------
 # Sidebar: filters
@@ -390,16 +375,11 @@ expenses_all = load_expenses()
 with st.sidebar:
     st.divider()
     st.markdown("### Filters")
-    show_set: set[str] = set(shows_df["Name"].dropna().astype(str).str.strip())
-    show_set.discard("")
-    if sales is not None:
-        show_set |= set(sales["Show"].unique())
-    if inv is not None:
-        show_set |= set(inv["Show"].unique())
-    all_shows = sorted(show_set - {UNASSIGNED}) + ([UNASSIGNED] if UNASSIGNED in show_set else [])
+    all_shows = sorted(sales["Show"].unique()) if sales is not None else []
+    if st.session_state.pop("_reset_show_filter", False):
+        st.session_state.pop("shows", None)
     sel_shows = st.multiselect("Card show", all_shows, default=all_shows, key="shows",
-                               help="Applies to sales, inventory, and show expenses. "
-                                    "'Non-show sales' = rows whose date falls outside every defined show.")
+                               help="Applies to sales and show expenses.")
 
     games = sorted(set(inv["Game"].unique() if inv is not None else [])
                    | set(sales["Game"].unique() if sales is not None else []))
@@ -435,8 +415,7 @@ def apply_outcome(df: pd.DataFrame, col: str) -> pd.DataFrame:
 # Filtered frames
 inv_f = None
 if inv is not None:
-    inv_f = inv[inv["Game"].isin(sel_games) & inv["Portfolio"].isin(sel_ports)
-                & inv["Show"].isin(sel_shows)]
+    inv_f = inv[inv["Game"].isin(sel_games) & inv["Portfolio"].isin(sel_ports)]
     if exclude_zero:
         inv_f = inv_f[~inv_f["Zero cost"]]
     inv_f = apply_outcome(inv_f, "Unrealized")
@@ -849,33 +828,8 @@ with tab_unreal:
 
 # ---------------- Shows & expenses ----------------
 with tab_shows:
-    st.subheader("Define shows")
-    st.markdown('<p class="section-note">Each show is a name plus a date range. '
-                'Sales and inventory rows are assigned to a show based on their date '
-                '(sold date for sales, date added for inventory). Rows outside every '
-                'range are shown as *Non-show sales*.</p>', unsafe_allow_html=True)
-    edited_shows = st.data_editor(
-        shows_df, num_rows="dynamic", hide_index=True, width="stretch",
-        key="shows_editor",
-        column_config={
-            "Name": st.column_config.TextColumn(required=True),
-            "Start": st.column_config.DateColumn(format="YYYY-MM-DD", required=True),
-            "End": st.column_config.DateColumn(format="YYYY-MM-DD", required=True),
-        })
-    if st.button("Save shows", type="primary"):
-        DATA_DIR.mkdir(exist_ok=True)
-        out = edited_shows.copy()
-        out["Name"] = out["Name"].astype(str).str.strip()
-        out = out[(out["Name"] != "") & out["Start"].notna() & out["End"].notna()]
-        out.to_csv(SHOWS_FILE, index=False)
-        st.toast(f"Saved {len(out)} show(s)")
-        st.cache_data.clear()
-        st.session_state.pop("shows_editor", None)
-        st.rerun()
-
-    st.divider()
     if sales is None:
-        empty("Add a sold export to track show results here.")
+        empty("Add a sold export for a show to track it here.")
     else:
         all_sales_sel = sales[sales["Show"].isin(sel_shows)]
         summary = all_sales_sel.groupby("Show").agg(
@@ -887,6 +841,30 @@ with tab_shows:
         summary["Net"] = summary["Realized"] - summary["Expenses"]
         summary["Margin"] = np.where(summary["Revenue"] > 0, summary["Net"] / summary["Revenue"], np.nan)
         st.subheader("Show results")
+        with st.expander("Rename a show"):
+            r1, r2, r3 = st.columns([2, 2, 1], vertical_alignment="bottom")
+            old_name = r1.selectbox("Show", stored_shows, key="rename_from")
+            new_name = r2.text_input("New name", key="rename_to",
+                                     placeholder="e.g. Bossa Nova Card Show – Oct 2026")
+            if r3.button("Rename", width="stretch", key="rename_btn"):
+                new_clean = (new_name or "").strip()
+                taken = set(sales_files) - {old_name}
+                if not old_name:
+                    st.error("Save a show first, then you can rename it.")
+                elif not new_clean:
+                    st.error("Type a new name first.")
+                elif new_clean in taken:
+                    st.error(f"There's already a show called {new_clean}. Pick a different name.")
+                elif new_clean != old_name:
+                    store.rename_show(old_name, new_clean)
+                    st.session_state["_reset_show_filter"] = True
+                    st.session_state.pop("rename_to", None)
+                    st.toast(f"Renamed to {new_clean}")
+                    st.rerun()
+            st.caption("Renames the show everywhere in the dashboard and moves its expenses "
+                       "with it." + (" The show's tab in Google Sheets is renamed too."
+                                     if store.kind == "sheets" else
+                                     " Your exported file keeps its original name."))
         st.markdown('<p class="section-note">Every sale in each file, ignoring the game, portfolio and '
                     'result filters, so each show is shown in full.</p>', unsafe_allow_html=True)
         st.dataframe(
@@ -921,10 +899,8 @@ with tab_shows:
                 })
             b1, b2 = st.columns(2)
             if b1.button("Save expenses", type="primary", width="stretch"):
-                DATA_DIR.mkdir(exist_ok=True)
-                out = edited.dropna(subset=["Show"]).copy()
-                out["Amount"] = pd.to_numeric(out["Amount"], errors="coerce").fillna(0)
-                out.to_csv(EXPENSES_FILE, index=False)
+                with st.spinner(f"Saving to {store.where}…"):
+                    store.save_expenses(edited.dropna(subset=["Show"]))
                 st.toast("Expenses saved")
                 st.rerun()
             b2.download_button("Download expenses", expenses_all.to_csv(index=False),
@@ -942,29 +918,27 @@ with tab_shows:
 
 # ---------------- Files ----------------
 with tab_files:
-    st.markdown('<p class="section-note">The files exactly as exported from Collectr.</p>',
+    st.markdown(f'<p class="section-note">Your Collectr exports as stored in the {store.where}.</p>',
                 unsafe_allow_html=True)
-    if SOURCE_LINKS:
-        cols = st.columns(len(SOURCE_LINKS))
-        for col_, (label_, url) in zip(cols, SOURCE_LINKS.items()):
-            col_.link_button(f"Open {label_}", url, width="stretch")
+    if store.link:
+        st.link_button("Open the Google Sheet", store.link)
 
     st.subheader("Inventory")
     if inv_original is not None:
         st.caption(f"{inv_source}: {len(inv_original):,} rows"
                    + (f", prices as of {as_of}" if as_of else ""))
         st.dataframe(inv_original, hide_index=True, width="stretch", height=380)
-        st.download_button("Download inventory CSV", inv_bytes, inv_source or "inventory.csv",
-                           "text/csv")
+        st.download_button("Download inventory CSV", inv_bytes, "inventory.csv", "text/csv")
     else:
         empty("No inventory file loaded.")
 
     st.subheader("Sold files")
     if sales_originals:
-        for fname, orig in sales_originals.items():
-            with st.expander(f"{fname}: {len(orig):,} sales", expanded=len(sales_originals) == 1):
+        for show, (source, orig, raw) in sales_originals.items():
+            with st.expander(f"{show}: {len(orig):,} sales", expanded=len(sales_originals) == 1):
+                st.caption(f"Source: {source}")
                 st.dataframe(orig, hide_index=True, width="stretch")
-                st.download_button(f"Download {fname}", sales_files[fname], fname,
-                                   "text/csv", key=f"dl_{fname}")
+                st.download_button(f"Download {show}.csv", raw, f"{show}.csv",
+                                   "text/csv", key=f"dl_{show}")
     else:
         empty("No sold files loaded.")
