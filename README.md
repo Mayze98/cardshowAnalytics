@@ -1,6 +1,6 @@
 # Card Show Ledger
 
-A Streamlit dashboard for trading card vendors. Drop in your [Collectr](https://getcollectr.com) exports and see what you actually made at each card show: realized profit, unrealized profit on the cards still in your binder, show expenses, and charts that show where your money is.
+A Streamlit dashboard for trading card vendors. Load your [Collectr](https://getcollectr.com) exports and see what you actually made at each card show: realized profit, unrealized profit on the cards still in your binder, show expenses, and charts that show where your money is.
 
 **Live app:** [cardshowanalytics.streamlit.app](https://cardshowanalytics.streamlit.app/)
 
@@ -11,43 +11,46 @@ A Streamlit dashboard for trading card vendors. Drop in your [Collectr](https://
 ## What it does
 
 - **Answers "did I make money?"** with net profit across your selected shows, after cost of cards sold and show expenses.
-- **Tracks realized and unrealized profit separately.** Realized comes from your Collectr transaction log; unrealized compares what you paid for your current stock against today's market value.
-- **Breaks results down by show.** Each transaction log export becomes its own show, so you can compare shows and decide which are worth the table fee.
+- **Tracks realized and unrealized profit separately.** Realized comes from your Collectr transaction logs; unrealized compares what you paid for your current stock against today's market value.
+- **Breaks results down by show,** so you can compare shows and decide which are worth the table fee.
 - **Logs show expenses** (table fees, gas, hotel, food, supplies) right in the app, since Collectr doesn't export them.
 - **Filters everything** by show, game, portfolio, and gains or losses.
 - **Charts the useful stuff:** profit on every card sold, running totals by date, raw vs graded revenue, profit by grade, holding time vs profit, biggest unrealized winners and losers, value by portfolio, and how concentrated your value is in a few cards.
-- **Saves your data to Google Sheets,** so nothing is lost when the hosted app restarts.
+- **Keeps your data on your computer.** Nothing is stored online; you keep a save file and open it next time.
 
-## Where your data is stored
+## How your data is saved
 
-The app keeps your exports, expenses and show names in one of two places:
+The dashboard doesn't store anything on the server. Your data lives in your browser session while the dashboard is open, and you keep it between sessions with a **save file**:
 
-| Mode | When it's used | Where data lives |
-| --- | --- | --- |
-| **Google Sheets** | Google credentials are set in Streamlit secrets | One Google Sheet in your Google account |
-| **Local** | No Google credentials (e.g. running on your computer for the first time) | The `data` folder next to `app.py` |
+1. When you're done, click **Download save file** in the sidebar. You get a `.zip` file, for example `card-show-ledger-2026-10-26.zip`.
+2. Next time, open the dashboard and upload that file under **Open save file**. Everything comes back: your inventory, your shows and their sales, and your expenses.
 
-Use Google Sheets for the hosted app. Streamlit Community Cloud wipes the app's disk whenever it restarts, so local mode only makes sense on your own computer.
+The sidebar tells you when you have changes that aren't in a save file yet. Closing or refreshing the tab without downloading loses those changes.
 
-In Google Sheets mode, the app creates and manages these tabs:
+Inside the save file:
 
-| Tab | Contents |
+| File | Contents |
 | --- | --- |
-| `Inventory` | Your latest Collectr inventory export |
-| `Sales - <show name>` | One tab per show, from your Collectr transaction log |
-| `Expenses` | The expenses you log in the app |
+| `inventory.csv` | Your Collectr inventory export |
+| `shows.csv` | Your shows and their expenses |
+| `sales/<show>.csv` | One Collectr transaction log per show |
 
-You can open the sheet and edit it directly. Click **Reload from Google Sheets** in the app's sidebar afterward to see your changes.
+These are ordinary CSV files, so you can unzip the save file and open them in any spreadsheet app.
+
+Because nothing is stored online, it's safe to leave the hosted app public. Other visitors only ever see their own session.
 
 ## Getting started
 
 ### Requirements
 
-- Python 3.10 or newer
 - A [Collectr PRO](https://getcollectr.com/pro) membership, for exports
-- A Google account, for Google Sheets storage
+- To run it on your own computer: Python 3.10 or newer
 
-### Install
+### Use the hosted app
+
+Open [cardshowanalytics.streamlit.app](https://cardshowanalytics.streamlit.app/). Nothing to install.
+
+### Run it on your computer
 
 ```bash
 git clone https://github.com/Mayze98/cardshowAnalytics.git
@@ -56,48 +59,10 @@ cd cardshowAnalytics
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
-```
-
-### Run
-
-```bash
 python -m streamlit run app.py
 ```
 
-The dashboard opens in your browser at `http://localhost:8501`. Next time, you only need to activate the virtual environment and run that command.
-
-## Setting up Google Sheets storage
-
-This takes about 15 minutes, once. You create a Google "service account" (a robot user the app signs in as), give it access to one Google Sheet, and hand its key to Streamlit as a secret.
-
-### 1. Create a service account
-
-1. Go to the [Google Cloud console](https://console.cloud.google.com/) and create a new project (for example "Card Show Ledger").
-2. Open **APIs & Services → Library**, search for **Google Sheets API**, and click **Enable**.
-3. Open **IAM & Admin → Service Accounts** and click **Create service account**. Give it a name and click through; it doesn't need any roles.
-4. Open the new service account, go to the **Keys** tab, and choose **Add key → Create new key → JSON**. A JSON file downloads. Keep it safe; it's a password.
-
-### 2. Create the Google Sheet
-
-1. Create a new, blank Google Sheet (for example "Card Show Ledger data").
-2. Click **Share** and add the service account's email address (the `client_email` in the JSON file, ending in `iam.gserviceaccount.com`) as an **Editor**.
-3. Copy the sheet's URL from your browser.
-
-### 3. Add the secrets
-
-The app reads its settings from Streamlit secrets. Use [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example) as a template:
-
-- `spreadsheet_url`: the sheet URL you copied.
-- `[gcp_service_account]`: copy each value from the JSON key file. Keep `private_key` on one line, with the `\n` sequences exactly as they appear in the JSON.
-- `app_password` (optional, recommended): a password the app asks for before showing anything.
-
-**On Streamlit Community Cloud:** open your app, go to **Settings → Secrets**, paste the filled-in contents, and save. The app restarts and connects.
-
-**On your computer:** save the filled-in file as `.streamlit/secrets.toml`. It's listed in `.gitignore`, so it won't be committed. Never commit this file or the JSON key to GitHub.
-
-### 4. Load your data
-
-Open the app, upload your Collectr inventory export and a transaction log export for each show in the sidebar, and click **Save uploads to Google Sheets**. From then on, the app loads everything from the sheet automatically.
+The dashboard opens in your browser at `http://localhost:8501`. Next time, you only need to activate the virtual environment and run the last command.
 
 ## Exporting from Collectr
 
@@ -112,14 +77,13 @@ The dashboard reads two kinds of CSV files from Collectr: your **inventory** (ev
 
 Export all your portfolios, not just one. The dashboard uses your portfolio names for its filters and charts, and the **Hide personal collection** filter looks for portfolios with "PC" in the name.
 
-### Sales
+### Transaction log
 
 1. When you sell a card, mark it as sold in Collectr and enter the sold price and date. The dashboard calculates profit from your purchase price and sold price, so both need to be filled in.
 2. After the show, open **View transaction log** in Collectr.
 3. Tap **Export to CSV**.
-4. Name the file after the show (for example `Spring expo.csv`). The file name becomes the show's name in the dashboard.
 
-Each transaction log file counts as one show. If your export includes sales from other days or other shows, open it in a spreadsheet app, delete those rows, and save it as CSV before adding it.
+If your export includes sales from other days or other shows, open it in a spreadsheet app, delete those rows, and save it as CSV before adding it.
 
 ### What the files need to contain
 
@@ -130,31 +94,42 @@ If a file won't load, check that it has these columns (the names must match Coll
 | Inventory | Portfolio Name, Category, Set, Product Name, Grade, Average Cost Paid, Quantity, Market Price (As of …), Price Override, Date Added |
 | Transaction log | Portfolio Name, Product Name, Grade, Quantity, Purchase Price, Purchase Date, Sold Price, Sold Date |
 
-## Adding your data
+## Using the dashboard
 
-Upload your CSV files in the app's sidebar, then click **Save uploads to Google Sheets** (or **Save uploads to data folder** in local mode) so they're kept. Without saving, uploads only last until you close the tab.
+### First time
 
-In local mode you can also copy the files into the `data` folder yourself:
-
-```
-data/
-├── inventory.csv          # your Collectr inventory export
-└── sales/
-    ├── Bossa show.csv     # one transaction log export per show
-    └── Spring expo.csv
-```
+1. Upload your Collectr inventory export in the sidebar under **Collectr inventory export**.
+2. Add your shows (see below).
+3. Click **Download save file** and keep the file somewhere safe.
 
 ### Before each show
 
-Upload a fresh inventory export and save it, so market values are current. It replaces the previous inventory.
+1. Open your save file.
+2. Upload a fresh inventory export so market values are current. It replaces the previous inventory.
+3. Optionally add the show now, without a file, so you can log its table fee.
+4. Download your save file.
 
 ### After each show
 
-1. Export the show's transaction log from Collectr, upload it, and save it.
-2. Open the **Shows & expenses** tab, log your table fee and other costs, and click **Save expenses**.
-3. Check the headline number for your net profit.
+1. Open your save file.
+2. Add the show's transaction log with **Add a show**.
+3. Log your table fee and other costs under **Expenses** and click **Update expenses**.
+4. Check the headline number for your net profit.
+5. Download your save file.
 
-## Using the dashboard
+### Adding a show
+
+On the **Shows & expenses** tab, open **Add a show**:
+
+1. Type the show's name.
+2. Attach the show's Collectr transaction log, or leave it empty to create the show now and add sales later.
+3. Click **Add show**.
+
+To add more sales to a show you already created (for example the second day of a weekend show), use the same show name and choose **Add these sales to it**. Sales that are already there are skipped, so adding the same transaction log twice won't double count. Choose **Replace its sales** to start that show over with the new file.
+
+### Renaming or removing a show
+
+On **Shows & expenses**, open **Rename or remove a show** and pick the show. Renaming moves its expenses with it. To remove a show, tick the confirmation box and click **Remove show**; its expenses are removed too.
 
 ### Filters (sidebar)
 
@@ -172,16 +147,8 @@ Upload a fresh inventory export and save it, so market values are current. It re
 - **Overview:** results for each show and where your inventory value sits.
 - **Realized:** every sale, best and worst sales, profit by grade, and whether holding longer paid off.
 - **Unrealized:** biggest gainers and losers, value by game, type, grade or condition, and a searchable inventory table.
-- **Shows & expenses:** a results table for each show, the expense log, and show renaming.
-- **Files:** your stored exports, viewable and downloadable.
-
-### Renaming a show
-
-On **Shows & expenses**, open **Rename a show**, pick the show, type the new name, and click **Rename**. The new name is used everywhere, and any expenses logged under the old name move with it. In Google Sheets mode, the show's tab is renamed too.
-
-### Removing a show
-
-In Google Sheets mode, delete the show's `Sales - …` tab in the sheet, then click **Reload from Google Sheets**. In local mode, delete its file from `data/sales/`.
+- **Shows & expenses:** add, rename and remove shows, a results table for each show, and the expense log.
+- **Files:** the Collectr exports in your current session, each downloadable on its own.
 
 ## How the numbers work
 
@@ -196,37 +163,25 @@ In Google Sheets mode, delete the show's `Sales - …` tab in the sheet, then cl
 
 ```
 cardshowAnalytics/
-├── app.py                        # the dashboard
-├── storage.py                    # saves and loads data (Google Sheets or local folder)
+├── app.py              # the dashboard
+├── workspace.py        # session data and the save file
 ├── requirements.txt
-├── .streamlit/
-│   ├── config.toml               # theme and settings
-│   ├── secrets.toml.example      # template for your secrets
-│   └── secrets.toml              # your real secrets (ignored by git)
-└── data/                         # local mode only (ignored by git)
+└── .streamlit/
+    └── config.toml     # theme and settings
 ```
 
-## Privacy
-
-Your exports contain your full collection and what you paid for it.
-
-- **In the repository:** `.gitignore` keeps `data/` and `.streamlit/secrets.toml` out of GitHub, so no card data or keys are committed.
-- **In Google Sheets:** the sheet is private to your Google account and the service account you shared it with.
-- **In the hosted app:** the app loads your data for anyone who opens it. Set `app_password` in secrets, or make the app private in Streamlit Community Cloud under **Settings → Sharing**.
+`.gitignore` excludes `.zip` files, so a save file kept in the project folder won't be committed by accident.
 
 ## Troubleshooting
 
-**"Couldn't open your Google Sheet"**
-Check that `spreadsheet_url` in secrets is the sheet's full URL, that the sheet is shared with the service account's email as an Editor, and that the Google Sheets API is enabled in your Google Cloud project.
+**My data is gone after refreshing the page**
+The dashboard only keeps data until the tab is closed or refreshed. Open your latest save file. Download a new save file whenever the sidebar says you have unsaved changes.
 
-**Changes made in the Google Sheet don't show up**
-The app keeps a copy of the sheet for 10 minutes to stay fast. Click **Reload from Google Sheets** in the sidebar.
-
-**Expenses or uploads disappeared from the hosted app**
-The app is running in local mode, which Streamlit Community Cloud wipes on restart. Set up [Google Sheets storage](#setting-up-google-sheets-storage).
+**"That file isn't a save file"**
+Upload the `.zip` you downloaded from the dashboard, not one of the CSV files inside it. To load a single Collectr export, use **Collectr inventory export** in the sidebar or **Add a show**.
 
 **`error: externally-managed-environment` when running pip**
-Your system Python doesn't allow direct installs. Create and activate the virtual environment as shown in [Install](#install), then use `python -m pip install`.
+Your system Python doesn't allow direct installs. Create and activate the virtual environment as shown above, then use `python -m pip install`.
 
 **`command not found: streamlit` or `No module named streamlit`**
 The virtual environment isn't active, or the install didn't finish. Run `source .venv/bin/activate`, then `python -m pip install -r requirements.txt`, then `python -m streamlit run app.py`.
@@ -239,4 +194,4 @@ Collectr has no price for it. Set a price override in Collectr and re-export.
 
 ## Built with
 
-[Streamlit](https://streamlit.io), [pandas](https://pandas.pydata.org), [Plotly](https://plotly.com/python/), and [gspread](https://docs.gspread.org/).
+[Streamlit](https://streamlit.io), [pandas](https://pandas.pydata.org), and [Plotly](https://plotly.com/python/).
