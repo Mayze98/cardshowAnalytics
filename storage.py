@@ -63,7 +63,9 @@ def clean_expenses(df: pd.DataFrame) -> pd.DataFrame:
         if c not in df:
             df[c] = ""
     amount = df["Amount"].astype(str).str.replace(r"[,$\s]", "", regex=True)
-    df["Amount"] = pd.to_numeric(amount, errors="coerce").fillna(0.0)
+    amount = pd.to_numeric(amount, errors="coerce")
+    df["Amount"] = pd.array(amount).to_numpy(dtype="float64", na_value=float("nan"))
+    df["Amount"] = df["Amount"].fillna(0.0)
     for c in ["Show", "Category", "Note"]:
         df[c] = df[c].fillna("").astype(str).replace({"nan": "", "None": ""})
     df = df[df["Show"].str.strip() != ""]

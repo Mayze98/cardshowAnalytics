@@ -88,7 +88,17 @@ div[data-testid="stTabs"] button p {{ font-size: 0.98rem; font-weight: 600; }}
 def to_num(series: pd.Series) -> pd.Series:
     """'1,442.97' -> 1442.97 ; blanks -> NaN."""
     cleaned = series.astype(str).str.replace(r"[,$\s]", "", regex=True)
-    return pd.to_numeric(cleaned.replace({"": np.nan, "nan": np.nan}), errors="coerce")
+    out = pd.to_numeric(cleaned.replace({"": np.nan, "nan": np.nan}), errors="coerce")
+    # Always plain float64, whatever backend pandas picked (Arrow, nullable, object)
+    return pd.Series(pd.array(out).to_numpy(dtype="float64", na_value=np.nan), index=series.index)
+
+
+def expenses_by_show(df: pd.DataFrame, shows: pd.Series) -> pd.Series:
+    """Total expenses for each show in `shows`, as plain floats (0 when none)."""
+    totals: dict[str, float] = {}
+    for show, amount in zip(df["Show"].astype(str), to_num(df["Amount"]).fillna(0.0)):
+        totals[show] = totals.get(show, 0.0) + float(amount)
+    return pd.Series([totals.get(str(s_), 0.0) for s_ in shows], index=shows.index, dtype="float64")
 
 
 def money(x: float, signed: bool = False, decimals: int = 0) -> str:
@@ -368,6 +378,7 @@ if sales is not None:
         sales["Portfolio"].str.split().str[0].fillna("Other"))
 
 expenses_all = store.expenses()
+expenses_all["Amount"] = to_num(expenses_all["Amount"]).fillna(0.0)
 
 # --------------------------------------------------------------------------
 # Sidebar: filters
@@ -438,7 +449,7 @@ revenue = float(sales_f["Revenue"].sum()) if sales_f is not None else 0.0
 sold_cost = float(sales_f["Cost"].sum()) if sales_f is not None else 0.0
 realized = float(sales_f["Realized"].sum()) if sales_f is not None else 0.0
 cards_sold = int(sales_f["Qty"].sum()) if sales_f is not None else 0
-total_expenses = float(exp_f["Amount"].sum()) if len(exp_f) else 0.0
+total_expenses = float(to_num(exp_f["Amount"]).fillna(0.0).sum()) if len(exp_f) else 0.0
 net = realized - total_expenses
 
 mkt_value = float(inv_valued["Market value"].sum()) if inv_f is not None else 0.0
@@ -544,8 +555,7 @@ with tab_over:
     with c1:
         if sales_f is not None and len(sales_f):
             by_show = sales_f.groupby("Show", as_index=False)[["Revenue", "Cost", "Realized"]].sum()
-            exp_by_show = exp_f.groupby("Show")["Amount"].sum() if len(exp_f) else pd.Series(dtype=float)
-            by_show["Expenses"] = by_show["Show"].map(exp_by_show).fillna(0)
+            by_show["Expenses"] = expenses_by_show(exp_f, by_show["Show"])
             by_show["Net"] = by_show["Realized"] - by_show["Expenses"]
             long = by_show.melt(id_vars="Show", value_vars=["Revenue", "Cost", "Expenses", "Net"],
                                 var_name="Measure", value_name="Amount")
@@ -836,8 +846,7 @@ with tab_shows:
             First_sale=("Sold", "min"), Last_sale=("Sold", "max"), Cards=("Qty", "sum"),
             Revenue=("Revenue", "sum"), Cost=("Cost", "sum"), Realized=("Realized", "sum"),
         ).reset_index()
-        exp_by_show = expenses_all.groupby("Show")["Amount"].sum()
-        summary["Expenses"] = summary["Show"].map(exp_by_show).fillna(0)
+        summary["Expenses"] = expenses_by_show(expenses_all, summary["Show"])
         summary["Net"] = summary["Realized"] - summary["Expenses"]
         summary["Margin"] = np.where(summary["Revenue"] > 0, summary["Net"] / summary["Revenue"], np.nan)
         st.subheader("Show results")
